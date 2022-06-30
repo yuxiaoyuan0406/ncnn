@@ -29,6 +29,9 @@ on:
 concurrency:
   group: windows-x64-cpu-${{ github.ref }}
   cancel-in-progress: true
+permissions:
+  contents: read
+
 jobs:
   windows:
     name: ${{ matrix.vs-version }}
@@ -59,7 +62,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: "protobuf-install"
-        key: protobuf-${{ matrix.vs-version }}-x64-install
+        key: protobuf-${{ matrix.vs-version }}-x64-install-2
     - name: protobuf
       if: steps.cache-protobuf.outputs.cache-hit != 'true'
       run: |
