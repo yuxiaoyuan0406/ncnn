@@ -145,7 +145,7 @@ static void qsort_descent_inplace(std::vector<Object>& objects)
     qsort_descent_inplace(objects, 0, objects.size() - 1);
 }
 
-static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
+static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold, bool agnostic = false)
 {
     picked.clear();
 
@@ -165,6 +165,9 @@ static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vecto
         for (int j = 0; j < (int)picked.size(); j++)
         {
             const Object& b = faceobjects[picked[j]];
+
+            if (!agnostic && a.label != b.label)
+                continue;
 
             // intersection over union
             float inter_area = intersection_area(a, b);
@@ -261,8 +264,10 @@ static int detect_yolox(const cv::Mat& bgr, std::vector<Object>& objects)
     // ncnn model param: https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s_ncnn.tar.gz
     // NOTE that newest version YOLOX remove normalization of model (minus mean and then div by std),
     // which might cause your model outputs becoming a total mess, plz check carefully.
-    yolox.load_param("yolox.param");
-    yolox.load_model("yolox.bin");
+    if (yolox.load_param("yolox.param"))
+        exit(-1);
+    if (yolox.load_model("yolox.bin"))
+        exit(-1);
 
     int img_w = bgr.cols;
     int img_h = bgr.rows;

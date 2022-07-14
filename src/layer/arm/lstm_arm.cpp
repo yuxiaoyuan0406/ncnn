@@ -14,13 +14,14 @@
 
 #include "lstm_arm.h"
 
+#include <math.h>
+
 #if __ARM_NEON
 #include <arm_neon.h>
 #endif // __ARM_NEON
 
 #include "arm_activation.h"
-
-#include <math.h>
+#include "arm_usability.h"
 
 #include "cpu.h"
 
@@ -310,16 +311,12 @@ static int lstm(const Mat& bottom_blob, Mat& top_blob, int reverse, const Mat& w
             float32x4_t _O = sigmoid_ps(_IFOG_4x4.val[2]);
             float32x4_t _G = tanh_ps(_IFOG_4x4.val[3]);
 
-            float32x4_t _cell2 = vaddq_f32(vmulq_f32(_F, vld1q_f32(cell_ptr)), vmulq_f32(_I, _G));
+            float32x4_t _cell2 = vaddq_f32(vmulq_f32(_F, vld1q_f32(cell_ptr + q)), vmulq_f32(_I, _G));
             float32x4_t _H = vmulq_f32(_O, tanh_ps(_cell2));
 
-            vst1q_f32(cell_ptr, _cell2);
-            vst1q_f32(hidden_ptr, _H);
-            vst1q_f32(output_data, _H);
-
-            cell_ptr += 4;
-            hidden_ptr += 4;
-            output_data += 4;
+            vst1q_f32(cell_ptr + q, _cell2);
+            vst1q_f32(hidden_ptr + q, _H);
+            vst1q_f32(output_data + q, _H);
         }
 #endif // __ARM_NEON
         #pragma omp parallel for num_threads(opt.num_threads)
@@ -337,12 +334,12 @@ static int lstm(const Mat& bottom_blob, Mat& top_blob, int reverse, const Mat& w
             O = 1.f / (1.f + exp(-O));
             G = tanh(G);
 
-            float cell2 = F * *cell_ptr + I * G;
+            float cell2 = F * cell_ptr[q] + I * G;
             float H = O * tanh(cell2);
 
-            *cell_ptr++ = cell2;
-            *hidden_ptr++ = H;
-            *output_data++ = H;
+            cell_ptr[q] = cell2;
+            hidden_ptr[q] = H;
+            output_data[q] = H;
         }
     }
 
@@ -568,7 +565,7 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
             const unsigned short* weight_hc_IFOG = weight_hc.row<const unsigned short>(q);
 
 #if __ARM_NEON
-            float32x4_t _IFOG = vcvt_f32_bf16(vld1_u16(bias_c_IFOG));
+            float32x4_t _IFOG = float2bfloat(vld1_u16(bias_c_IFOG));
             float32x4_t _sum1 = vdupq_n_f32(0.f);
             float32x4_t _sum2 = vdupq_n_f32(0.f);
             float32x4_t _sum3 = vdupq_n_f32(0.f);
@@ -583,12 +580,12 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
 #if __ARM_NEON
             for (; i + 3 < size; i += 4)
             {
-                float32x4_t _xi = vcvt_f32_bf16(vld1_u16(x + i));
+                float32x4_t _xi = float2bfloat(vld1_u16(x + i));
 
-                float32x4_t _weight_xc_IFOG_0 = vcvt_f32_bf16(vld1_u16(weight_xc_IFOG));
-                float32x4_t _weight_xc_IFOG_1 = vcvt_f32_bf16(vld1_u16(weight_xc_IFOG + 4));
-                float32x4_t _weight_xc_IFOG_2 = vcvt_f32_bf16(vld1_u16(weight_xc_IFOG + 8));
-                float32x4_t _weight_xc_IFOG_3 = vcvt_f32_bf16(vld1_u16(weight_xc_IFOG + 12));
+                float32x4_t _weight_xc_IFOG_0 = float2bfloat(vld1_u16(weight_xc_IFOG));
+                float32x4_t _weight_xc_IFOG_1 = float2bfloat(vld1_u16(weight_xc_IFOG + 4));
+                float32x4_t _weight_xc_IFOG_2 = float2bfloat(vld1_u16(weight_xc_IFOG + 8));
+                float32x4_t _weight_xc_IFOG_3 = float2bfloat(vld1_u16(weight_xc_IFOG + 12));
 
 #if __aarch64__
                 _IFOG = vfmaq_laneq_f32(_IFOG, _weight_xc_IFOG_0, _xi, 0);
@@ -610,8 +607,8 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
 #if __ARM_NEON
                 unsigned short xi = x[i];
 
-                float32x4_t _xi = vcvt_f32_bf16(vdup_n_u16(xi));
-                float32x4_t _weight_xc_IFOG = vcvt_f32_bf16(vld1_u16(weight_xc_IFOG));
+                float32x4_t _xi = float2bfloat(vdup_n_u16(xi));
+                float32x4_t _weight_xc_IFOG = float2bfloat(vld1_u16(weight_xc_IFOG));
                 _IFOG = vmlaq_f32(_IFOG, _weight_xc_IFOG, _xi);
 #else
                 float xi = bfloat16_to_float32(x[i]);
@@ -631,10 +628,10 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
             {
                 float32x4_t _h_cont = vld1q_f32((const float*)hidden_state + i);
 
-                float32x4_t _weight_hc_IFOG_0 = vcvt_f32_bf16(vld1_u16(weight_hc_IFOG));
-                float32x4_t _weight_hc_IFOG_1 = vcvt_f32_bf16(vld1_u16(weight_hc_IFOG + 4));
-                float32x4_t _weight_hc_IFOG_2 = vcvt_f32_bf16(vld1_u16(weight_hc_IFOG + 8));
-                float32x4_t _weight_hc_IFOG_3 = vcvt_f32_bf16(vld1_u16(weight_hc_IFOG + 12));
+                float32x4_t _weight_hc_IFOG_0 = float2bfloat(vld1_u16(weight_hc_IFOG));
+                float32x4_t _weight_hc_IFOG_1 = float2bfloat(vld1_u16(weight_hc_IFOG + 4));
+                float32x4_t _weight_hc_IFOG_2 = float2bfloat(vld1_u16(weight_hc_IFOG + 8));
+                float32x4_t _weight_hc_IFOG_3 = float2bfloat(vld1_u16(weight_hc_IFOG + 12));
 
 #if __aarch64__
                 _IFOG = vfmaq_laneq_f32(_IFOG, _weight_hc_IFOG_0, _h_cont, 0);
@@ -657,7 +654,7 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
 
 #if __ARM_NEON
                 float32x4_t _h_cont = vdupq_n_f32(h_cont);
-                float32x4_t _weight_hc_IFOG = vcvt_f32_bf16(vld1_u16(weight_hc_IFOG));
+                float32x4_t _weight_hc_IFOG = float2bfloat(vld1_u16(weight_hc_IFOG));
                 _IFOG = vmlaq_f32(_IFOG, _weight_hc_IFOG, _h_cont);
 #else
                 I += bfloat16_to_float32(weight_hc_IFOG[0]) * h_cont;
@@ -716,16 +713,12 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
             float32x4_t _O = sigmoid_ps(_IFOG_4x4.val[2]);
             float32x4_t _G = tanh_ps(_IFOG_4x4.val[3]);
 
-            float32x4_t _cell2 = vaddq_f32(vmulq_f32(_F, vld1q_f32(cell_ptr)), vmulq_f32(_I, _G));
+            float32x4_t _cell2 = vaddq_f32(vmulq_f32(_F, vld1q_f32(cell_ptr + q)), vmulq_f32(_I, _G));
             float32x4_t _H = vmulq_f32(_O, tanh_ps(_cell2));
 
-            vst1q_f32(cell_ptr, _cell2);
-            vst1q_f32(hidden_ptr, _H);
-            vst1_u16(output_data, vcvt_bf16_f32(_H));
-
-            cell_ptr += 4;
-            hidden_ptr += 4;
-            output_data += 4;
+            vst1q_f32(cell_ptr + q, _cell2);
+            vst1q_f32(hidden_ptr + q, _H);
+            vst1_u16(output_data + q, bfloat2float(_H));
         }
 #endif // __ARM_NEON
         #pragma omp parallel for num_threads(opt.num_threads)
@@ -743,12 +736,12 @@ static int lstm_bf16s(const Mat& bottom_blob, Mat& top_blob, int reverse, const 
             O = 1.f / (1.f + exp(-O));
             G = tanh(G);
 
-            float cell2 = F * *cell_ptr + I * G;
+            float cell2 = F * cell_ptr[q] + I * G;
             float H = O * tanh(cell2);
 
-            *cell_ptr++ = cell2;
-            *hidden_ptr++ = H;
-            *output_data++ = float32_to_bfloat16(H);
+            cell_ptr[q] = cell2;
+            hidden_ptr[q] = H;
+            output_data[q] = float32_to_bfloat16(H);
         }
     }
 
