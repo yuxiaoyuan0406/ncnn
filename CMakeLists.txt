@@ -79,6 +79,7 @@ option(NCNN_RUNTIME_CPU "runtime dispatch cpu routines" ON)
 option(NCNN_DISABLE_PIC "disable position-independent code" OFF)
 option(NCNN_BUILD_TESTS "build tests" OFF)
 option(NCNN_COVERAGE "build for coverage" OFF)
+option(NCNN_ASAN "build for address sanitizer" OFF)
 option(NCNN_BUILD_BENCHMARK "build benchmark" ON)
 option(NCNN_PYTHON "build python api" OFF)
 option(NCNN_INT8 "int8 inference" ON)
@@ -271,6 +272,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips)")
     set(NCNN_TARGET_ARCH mips)
 
     include(CheckCXXCompilerFlag)
+
     check_cxx_compiler_flag("-mmsa" NCNN_COMPILER_SUPPORT_MIPS_MSA)
 
     set(CMAKE_REQUIRED_FLAGS "-mloongson-mmi -I${CMAKE_CURRENT_SOURCE_DIR}/src/layer/mips")
@@ -292,8 +294,14 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(riscv)")
     set(NCNN_TARGET_ARCH riscv)
 
     include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag("-march=rv64gcv" NCNN_COMPILER_SUPPORT_RVV)
-    check_cxx_compiler_flag("-march=rv64gcv_zfh" NCNN_COMPILER_SUPPORT_RVV_FP16)
+
+    set(CMAKE_REQUIRED_FLAGS "-march=rv64gcv")
+    check_cxx_source_compiles("#include <riscv_vector.h>\nint main() { vfloat32m1_t _s, _w; float _v; word_type vl; _s = vfmacc_vf_f32m1(_s, _v, _w, vl); return 0; }" NCNN_COMPILER_SUPPORT_RVV)
+
+    set(CMAKE_REQUIRED_FLAGS "-march=rv64gcv_zfh")
+    check_cxx_source_compiles("#include <riscv_vector.h>\nint main() { vfloat16m1_t _s, _w; __fp16 _v; word_type vl; _s = vfmacc_vf_f16m1(_s, _v, _w, vl); return 0; }" NCNN_COMPILER_SUPPORT_RVV_FP16)
+
+    unset(CMAKE_REQUIRED_FLAGS)
 
     if(NCNN_COMPILER_SUPPORT_RVV)
         option(NCNN_RVV "optimize risc-v platform with v extension" ON)
@@ -310,7 +318,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(riscv)")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)")
     set(NCNN_TARGET_ARCH powerpc)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch)")
-    set(NCNN_TARGET_ARCH loongarch)
+    set(NCNN_TARGET_ARCH mips)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(xtensa)")
     set(NCNN_TARGET_ARCH xtensa)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(s390x)")
