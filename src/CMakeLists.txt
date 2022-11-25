@@ -156,6 +156,10 @@ ncnn_add_layer(Deconvolution3D)
 ncnn_add_layer(DeconvolutionDepthWise3D)
 ncnn_add_layer(Einsum)
 ncnn_add_layer(DeformableConv2D)
+ncnn_add_layer(GLU)
+ncnn_add_layer(Fold)
+ncnn_add_layer(Unfold)
+ncnn_add_layer(GridSample)
 
 if(NCNN_VULKAN)
     ncnn_add_shader(${CMAKE_CURRENT_SOURCE_DIR}/convert_ycbcr.comp)
@@ -446,6 +450,12 @@ if(((IOS AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64") OR (APPLE AND CMAKE_OSX_AR
         endif()
     endif()
     target_compile_options(ncnn PRIVATE ${ARM_MARCH_FLAG})
+
+    if(ANDROID_NDK_MAJOR AND (ANDROID_NDK_MAJOR GREATER_EQUAL 23))
+        # llvm 12 in ndk-23 enables out-of-line atomics by default
+        # disable this feature for fixing linking atomic builtins issue with old ndk
+        target_compile_options(ncnn PRIVATE -mno-outline-atomics)
+    endif()
 endif()
 
 if(NCNN_TARGET_ARCH STREQUAL "mips")
@@ -457,10 +467,18 @@ if(NCNN_TARGET_ARCH STREQUAL "mips")
     endif()
 endif()
 
+if(NCNN_TARGET_ARCH STREQUAL "loongarch")
+    if(NOT NCNN_RUNTIME_CPU AND NCNN_LSX)
+        target_compile_options(ncnn PRIVATE -mlsx)
+    endif()
+endif()
+
 if(NCNN_TARGET_ARCH STREQUAL "riscv" AND NOT C906)
     if(NOT NCNN_RUNTIME_CPU AND NCNN_RVV)
-        if(NCNN_COMPILER_SUPPORT_RVV_FP16)
+        if(NCNN_COMPILER_SUPPORT_RVV_ZFH)
             target_compile_options(ncnn PRIVATE -march=rv64gcv_zfh)
+        elseif(NCNN_COMPILER_SUPPORT_RVV_ZVFH)
+            target_compile_options(ncnn PRIVATE -march=rv64gcv_zfh_zvfh0p1 -menable-experimental-extensions -D__fp16=_Float16)
         elseif(NCNN_COMPILER_SUPPORT_RVV)
             target_compile_options(ncnn PRIVATE -march=rv64gcv)
         endif()
